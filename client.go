@@ -1,21 +1,17 @@
 package httpclient
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"math"
 	"math/rand/v2"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/edaniel30/http-client-go/internal/telemetry"
 )
-
-const obfuscatedValue = "********"
 
 type Client struct {
 	httpClient       *http.Client
@@ -233,10 +229,8 @@ func (c *Client) logRequestStart(ctx context.Context, req *http.Request, ro *req
 	}
 
 	fields := map[string]any{
-		"method":           req.Method,
-		"url":              req.URL.String(),
-		"request_headers":  obfuscateHeaders(req.Header, ro.obfuscatedHeaders),
-		"request_body":     readBodyPreview(req.Body, &req.Body),
+		"method": req.Method,
+		"url":    req.URL.String(),
 	}
 
 	for k, v := range ro.tags {
@@ -252,12 +246,10 @@ func (c *Client) logRequestEnd(ctx context.Context, req *http.Request, resp *htt
 	}
 
 	fields := map[string]any{
-		"method":           req.Method,
-		"url":              req.URL.String(),
-		"status":           resp.StatusCode,
-		"duration_ms":      duration.Milliseconds(),
-		"response_headers": obfuscateHeaders(resp.Header, ro.obfuscatedHeaders),
-		"response_body":    readBodyPreview(resp.Body, &resp.Body),
+		"method":      req.Method,
+		"url":         req.URL.String(),
+		"status":      resp.StatusCode,
+		"duration_ms": duration.Milliseconds(),
 	}
 
 	for k, v := range ro.tags {
@@ -286,45 +278,6 @@ func (c *Client) logRequestError(ctx context.Context, req *http.Request, ro *req
 	c.config.Logger.Error(ctx, "HTTP request failed", fields)
 }
 
-// obfuscateHeaders returns a copy of headers with sensitive values masked.
-func obfuscateHeaders(h http.Header, obfuscated []string) map[string]string {
-	result := make(map[string]string, len(h))
-
-	for k, v := range h {
-		result[k] = strings.Join(v, ", ")
-	}
-
-	for _, name := range obfuscated {
-		for k := range result {
-			if strings.EqualFold(k, name) {
-				result[k] = obfuscatedValue
-			}
-		}
-	}
-
-	return result
-}
-
-// readBodyPreview reads the body, returns its string content, and reconstructs the ReadCloser
-// so the body can still be consumed by the caller.
-func readBodyPreview(body io.ReadCloser, target *io.ReadCloser) string {
-	if body == nil {
-		return ""
-	}
-
-	data, err := io.ReadAll(body)
-	if err != nil {
-		return ""
-	}
-
-	*target = io.NopCloser(bytes.NewReader(data))
-
-	if len(data) == 0 {
-		return ""
-	}
-
-	return string(data)
-}
 
 // --- HTTP Methods ---
 
