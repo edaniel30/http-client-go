@@ -256,7 +256,7 @@ func (c *Client) logRequestEnd(ctx context.Context, req *http.Request, resp *htt
 		fields[k] = v
 	}
 
-	c.config.Logger.Info(ctx, "HTTP request completed", fields)
+	c.config.Logger.Debug(ctx, "HTTP request completed", fields)
 }
 
 func (c *Client) logRequestError(ctx context.Context, req *http.Request, ro *requestOpts, duration time.Duration, err error) {

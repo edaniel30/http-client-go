@@ -180,11 +180,11 @@ func TestClient_Do_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	_ = resp.Body.Close()
 
-	assert.Len(t, logger.debugCalls, 1)
+	assert.Len(t, logger.debugCalls, 2)
 	assert.Equal(t, "HTTP request started", logger.debugCalls[0].msg)
-	assert.Len(t, logger.infoCalls, 1)
-	assert.Equal(t, "HTTP request completed", logger.infoCalls[0].msg)
-	assert.Equal(t, http.StatusOK, logger.infoCalls[0].fields["status"])
+	assert.Equal(t, "HTTP request completed", logger.debugCalls[1].msg)
+	assert.Equal(t, http.StatusOK, logger.debugCalls[1].fields["status"])
+	assert.Empty(t, logger.infoCalls)
 }
 
 func TestClient_Do_Error(t *testing.T) {
@@ -823,9 +823,9 @@ func TestClient_WithTags(t *testing.T) {
 	assert.NoError(t, err)
 	_ = resp.Body.Close()
 
-	require.Len(t, logger.infoCalls, 1)
-	assert.Equal(t, "payment", logger.infoCalls[0].fields["service"])
-	assert.Equal(t, "charge", logger.infoCalls[0].fields["operation"])
+	require.Len(t, logger.debugCalls, 2)
+	assert.Equal(t, "payment", logger.debugCalls[1].fields["service"])
+	assert.Equal(t, "charge", logger.debugCalls[1].fields["operation"])
 }
 
 func TestClient_WithRequestHeaders(t *testing.T) {
