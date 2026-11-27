@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -61,7 +62,7 @@ func TestHook_OnRequestStart_CreatesSpan(t *testing.T) {
 
 	spans := exporter.GetSpans()
 	require.Len(t, spans, 1)
-	assert.Equal(t, "HTTP GET", spans[0].Name)
+	assert.Equal(t, "GET 127.0.0.1", spans[0].Name)
 }
 
 func TestHook_OnRequestEnd_RecordsStatus(t *testing.T) {
@@ -79,7 +80,7 @@ func TestHook_OnRequestEnd_RecordsStatus(t *testing.T) {
 
 	hasStatusCode := false
 	for _, attr := range spans[0].Attributes {
-		if string(attr.Key) == "http.status_code" {
+		if string(attr.Key) == "http.response.status_code" {
 			hasStatusCode = true
 			assert.Equal(t, int64(201), attr.Value.AsInt64())
 		}
@@ -149,14 +150,90 @@ func TestHook_SpanAttributes(t *testing.T) {
 
 	spans := exporter.GetSpans()
 	require.Len(t, spans, 1)
+	assert.Equal(t, "POST example.com", spans[0].Name)
 
+	attrs := spanAttributes(spans[0])
+	assert.Equal(t, "POST", attrs["http.request.method"])
+	assert.Equal(t, "http://example.com:8080/api/v1/users", attrs["url.full"])
+	assert.Equal(t, "example.com", attrs["server.address"])
+	assert.Equal(t, int64(8080), attrs["server.port"])
+	assert.Equal(t, int64(200), attrs["http.response.status_code"])
+	assert.NotContains(t, attrs, "error.type")
+	assert.Equal(t, "Unset", spans[0].Status.Code.String())
+}
+
+func TestHook_DefaultPortFromScheme(t *testing.T) {
+	exporter := setupTestTracer(t)
+	hook := NewHook()
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://generativelanguage.googleapis.com/v1beta/interactions", nil)
+	hook.OnRequestStart(req)
+	hook.OnRequestEnd(req, &http.Response{StatusCode: http.StatusOK})
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 1)
+	assert.Equal(t, "POST generativelanguage.googleapis.com", spans[0].Name)
+
+	attrs := spanAttributes(spans[0])
+	assert.Equal(t, "generativelanguage.googleapis.com", attrs["server.address"])
+	assert.Equal(t, int64(443), attrs["server.port"])
+}
+
+func TestHook_OnRequestEnd_MarksClientError(t *testing.T) {
+	exporter := setupTestTracer(t)
+	hook := NewHook()
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://api.example.com/v1", nil)
+	hook.OnRequestStart(req)
+	hook.OnRequestEnd(req, &http.Response{StatusCode: http.StatusTooManyRequests})
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 1)
+	assert.Equal(t, "Error", spans[0].Status.Code.String())
+
+	attrs := spanAttributes(spans[0])
+	assert.Equal(t, int64(429), attrs["http.response.status_code"])
+	assert.Equal(t, "429", attrs["error.type"])
+}
+
+func TestHook_OnError_SetsErrorType(t *testing.T) {
+	exporter := setupTestTracer(t)
+	hook := NewHook()
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com", nil)
+	hook.OnRequestStart(req)
+	hook.OnError(req, &url.Error{Op: "Get", URL: "http://example.com", Err: context.DeadlineExceeded})
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 1)
+	assert.Equal(t, "*url.Error", spanAttributes(spans[0])["error.type"])
+}
+
+func TestHook_RedactsURL(t *testing.T) {
+	exporter := setupTestTracer(t)
+	hook := NewHook()
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"https://user:pass@bucket.example.com/file.pdf?X-Amz-Signature=abc&key=secret#frag", nil)
+	hook.OnRequestStart(req)
+	hook.OnRequestEnd(req, &http.Response{StatusCode: http.StatusOK})
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 1)
+
+	full, _ := spanAttributes(spans[0])["url.full"].(string)
+	assert.Equal(t, "https://REDACTED:REDACTED@bucket.example.com/file.pdf?X-Amz-Signature=REDACTED&key=REDACTED", full)
+	assert.NotContains(t, full, "secret")
+	assert.NotContains(t, full, "pass")
+	// The request itself is untouched
+	assert.Equal(t, "secret", req.URL.Query().Get("key"))
+}
+
+func spanAttributes(span tracetest.SpanStub) map[string]any {
 	attrs := make(map[string]any)
-	for _, attr := range spans[0].Attributes {
+	for _, attr := range span.Attributes {
 		attrs[string(attr.Key)] = attr.Value.AsInterface()
 	}
 
-	assert.Equal(t, "POST", attrs["http.method"])
-	assert.Equal(t, "http://example.com:8080/api/v1/users", attrs["http.url"])
-	assert.Equal(t, "http", attrs["http.scheme"])
-	assert.Equal(t, "example.com:8080", attrs["net.peer.name"])
+	return attrs
 }
