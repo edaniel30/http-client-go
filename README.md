@@ -208,6 +208,12 @@ resp, err := client.Post(
 - [go.opentelemetry.io/otel](https://github.com/open-telemetry/opentelemetry-go) - OpenTelemetry tracing
 - [go.opentelemetry.io/otel/exporters/otlp](https://github.com/open-telemetry/opentelemetry-go) - OTLP exporter
 
+## Releases
+
+Releases are automatic with [semantic-release](https://semantic-release.gitbook.io/): merging a `release/*` or `hotfix/*` PR into `main` (merge commit) reads the conventional commits since the last `v*` tag and creates the next tag and its GitHub Release (`.releaserc.json`). `feat` gives a minor version; `fix`, `perf`, `refactor`, `revert`, `build` a patch; `!` or a `BREAKING CHANGE:` footer a major; `docs`, `test`, `ci`, `chore`, `style` no release. The tag is the Go module version (`go get github.com/edaniel30/http-client-go@vX.Y.Z`).
+
+Commit messages are checked by the `commit-msg` hook (`make setup` installs it) and in CI (`scripts/conventional-commit.sh`).
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
