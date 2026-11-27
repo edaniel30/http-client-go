@@ -24,20 +24,24 @@ defer client.Close()
 
 - **Distributed tracing** - Track outgoing HTTP requests with spans
 - **Trace propagation** - Automatically injects `Traceparent` header for downstream services
-- **Error recording** - Records errors and 5xx status codes on spans
+- **Error recording** - Marks network errors and any 4xx/5xx response as span errors, with `error.type`
+- **Semantic conventions** - Current OpenTelemetry HTTP client attributes, so backends (Tempo span metrics, Datadog, Jaeger) group calls by dependency
 - **Backend agnostic** - Works with Jaeger, Datadog, Zipkin, and any OTLP-compatible backend
 
 ## Span Attributes
 
-Automatically recorded for every HTTP request:
+Spans are named `<METHOD> <host>` (`POST api.example.com`): one name per dependency, never per URL, so span metrics stay low-cardinality. Attributes follow the current [HTTP client semantic conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/#http-client):
 
 | Attribute | Description | Example |
 |---|---|---|
-| `http.method` | HTTP method | `GET`, `POST` |
-| `http.url` | Full request URL | `https://api.example.com/users` |
-| `http.scheme` | URL scheme | `http`, `https` |
-| `net.peer.name` | Target host | `api.example.com:443` |
-| `http.status_code` | Response status | `200`, `500` |
+| `http.request.method` | HTTP method | `GET`, `POST` |
+| `url.full` | Request URL, with user info and every query value replaced by `REDACTED` | `https://api.example.com/users?key=REDACTED` |
+| `server.address` | Target host, without the port | `api.example.com` |
+| `server.port` | Target port (the scheme's default when the URL has none) | `443` |
+| `http.response.status_code` | Response status | `200`, `429` |
+| `error.type` | Only on failure: the status code (4xx, 5xx) or the Go error type | `429`, `*url.Error` |
+
+Up to v0.0.3 the spans were named `HTTP <METHOD>` and used the older attributes (`http.method`, `http.url`, `http.scheme`, `net.peer.name`, `http.status_code`), and only 5xx marked an error. Queries or dashboards on those names must move to the ones above.
 
 ## Configuration
 
@@ -55,15 +59,15 @@ Automatically recorded for every HTTP request:
 client.Get(ctx, url)
   ↓
 Hook: OnRequestStart
-  → Create span "HTTP GET"
-  → Set attributes (method, url, host)
+  → Create span "GET api.example.com"
+  → Set attributes (method, redacted url, server address and port)
   → Inject Traceparent header
   ↓
 HTTP request executes
   ↓
 Hook: OnRequestEnd / OnError
-  → Set status_code attribute
-  → Mark error if 5xx or network failure
+  → Set http.response.status_code
+  → Mark error (and error.type) on 4xx, 5xx or network failure
   → End span (sent to OTLP endpoint)
 ```
 
